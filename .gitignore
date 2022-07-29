@@ -1,0 +1,13 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# vim
+.*.sw?
+
+# PyCharm
+.idea
+
+# IPYNB notebooks:
+.ipynb_checkpoints
