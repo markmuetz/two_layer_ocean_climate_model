@@ -40,7 +40,9 @@ class ClimateModel:
             disabled=False,
         )
         controls['future_scenario'] = future_scenario
-
+        cbs = []
+        sliders = []
+        
         for column in self.forcings.columns[1:11]:
             checkbox = widgets.Checkbox(
                 value=True,
@@ -49,12 +51,13 @@ class ClimateModel:
                 # indent=False
             )
             controls[column] = checkbox
+            cbs.append(checkbox)
 
         for k, v in self.vars.items():
             slider = widgets.FloatSlider(
                 value=v,
-                min=v / 2,
-                max=v * 2,
+                min=v / 4,
+                max=v * 4,
                 step=1e-5,
                 description=f'{k}: ',
                 disabled=False,
@@ -64,10 +67,23 @@ class ClimateModel:
                 readout_format='.4f',
             )
             controls[k] = slider
-        display(interactive(self.run_model, **controls))
+            sliders.append(slider)
+
+        # Attempt at doing this: https://ipywidgets.readthedocs.io/en/latest/examples/Using%20Interact.html#More-control-over-the-user-interface:-interactive_output
+        # Not working.
+        ui = widgets.VBox([future_scenario, widgets.HBox(cbs[:4]), widgets.HBox(cbs[4:8]), widgets.HBox(cbs[8:]), widgets.HBox(sliders)])
+        out = widgets.interactive_output(self.run_model, controls)
+        ui.layout.height = '200px'
+        display(ui, out)
+        
+        # Stop flickering? https://ipywidgets.readthedocs.io/en/latest/examples/Using%20Interact.html#Flickering-and-jumping-output
+        #interactive_plot = interactive(self.run_model, **controls)
+        #output = interactive_plot.children[-1]
+        #output.layout.height = '700px'
+        #display(interactive_plot)
 
     def run_model(self, **control_values):
-        print(control_values)
+        # print(control_values)
         slider_vars = {k: control_values[k] for k in self.vars.keys()}
         forcings_enabled = [c for c in self.forcings.columns[1:11] if control_values[c]]
         total_forcing = self.forcings.loc[2:][forcings_enabled].sum(axis=1)
