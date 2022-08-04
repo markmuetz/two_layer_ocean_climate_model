@@ -21,7 +21,7 @@ class ClimateModel:
             dt = 365.2422 * 86400,  # s
         )
         self.forcings = pd.read_csv('forcing_data.csv')
-        self.obs_temp_anomaly = pd.read_csv('observed_temperature_anomaly_1961-1990.csv')
+        self.obs_temp_anomaly = pd.read_csv('observed_temperature_anomaly_1850-2016.csv')
         self.obs_temp_uncert = pd.read_csv('observed_temperature_uncertainty.csv')
 
     def update_T(self, dTm, dTd, dF, dt, lam, d_m, d_d, K, rho, c_p):
@@ -33,9 +33,9 @@ class ClimateModel:
         return dTm, dTd
 
     def run_model(self, **control_values):
-        var_values = {k: control_values[k] for k in self.default_vars.keys()}
-        forcings_enabled = [c for c in self.forcings.columns[1:11] if control_values[c]]
-        total_forcing = self.forcings.loc[2:][forcings_enabled].sum(axis=1)
+        var_values = {k: control_values.get(k, v) for k, v in self.default_vars.items()}
+        forcing_columns = [c for c in self.forcings.columns[1:11] if control_values.get(c, True)]
+        total_forcing = self.forcings.loc[2:][forcing_columns].sum(axis=1)
         years = [1750]
         dT = [(0, 0)]
         for year, F in list(zip(self.forcings.YEAR.loc[2:], total_forcing)):
@@ -49,24 +49,14 @@ class ClimateModel:
         dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2015)].dTm - self.anomaly_baseline.dTm)
         self.rmse = np.sqrt(((self.obs_temp_anomaly['Obs.'] - dTm_match_obs)**2).mean())
 
-    def plot(self, ax=None, **control_values):
-        dT = self.dT
-        years = dT.year
-
-        if ax is None:
-            fig, ax = plt.subplots()
-            fig.set_size_inches((18, 8))
-
-        ax.plot(years, dT.dTm - self.anomaly_baseline.dTm, label='$\Delta$Tm')
-        ax.plot(years, dT.dTd - self.anomaly_baseline.dTd, label='$\Delta$Td')
+    def base_plot(self, ax=None, **control_values):
         ax.plot(self.obs_temp_anomaly.YEAR, self.obs_temp_anomaly['Obs.'], color='r', label='HadCRUT 4 obs.')
-
         ax.fill_between(
             self.obs_temp_uncert.Year,
             self.obs_temp_uncert['Min. Uncert.'],
             self.obs_temp_uncert['Max. Uncert.'],
             alpha=0.4, facecolor='r', label='obs. uncert.')
-        ax.legend(loc='upper left')
+
         ax.set_ylim((-1, 2))
         if control_values['future_scenario']:
             ax.set_xlim((1750, 2110))
@@ -78,9 +68,16 @@ class ClimateModel:
         ax.set_xlabel('year')
         ax.set_ylabel('temperature anomaly 1961-1990 ($^\circ$C)')
 
-        dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2015)].dTm - self.anomaly_baseline.dTm)
-        rmse = np.sqrt(((self.obs_temp_anomaly['Obs.'] - dTm_match_obs)**2).mean())
-        ax.set_title(f'RMSE: {rmse:.3f}')
+    def plot(self, ax=None, **control_values):
+        if ax is None:
+            fig, ax = plt.subplots()
+            fig.set_size_inches((18, 8))
+            self.base_plot(ax=ax, **control_values)
+            ax.legend(loc='upper left')
+            ax.set_title(f'RMSE: {self.rmse:.3f}')
+
+        ax.plot(self.dT.year, self.dT.dTm - self.anomaly_baseline.dTm, label='$\Delta$Tm')
+        ax.plot(self.dT.year, self.dT.dTd - self.anomaly_baseline.dTd, label='$\Delta$Td')
 
 
 class ClimateModelUI:
