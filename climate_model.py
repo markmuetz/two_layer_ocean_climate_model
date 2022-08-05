@@ -49,8 +49,8 @@ class ClimateModel:
         self.dT = dT
 
         self.anomaly_baseline = dT[(dT.year >= 1961) & (dT.year <= 1990)].mean()
-        dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2015)].dTm - self.anomaly_baseline.dTm)
-        self.rmse = np.sqrt(((self.obs_temp_anomaly.obs_temp_anomaly - dTm_match_obs)**2).mean())
+        dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2016)].dTm - self.anomaly_baseline.dTm)
+        self.rmse = np.sqrt(((self.obs_temp_anomaly.obs_temp_anomaly.values - dTm_match_obs.values)**2).mean())
 
     def base_plot(self, ax, **control_values):
         ax.plot(self.obs_temp_anomaly.year, self.obs_temp_anomaly.obs_temp_anomaly, color='r', label='HadCRUT 4 obs.')
