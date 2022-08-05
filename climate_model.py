@@ -3,6 +3,7 @@ import ipywidgets.widgets.interaction as interaction
 from ipywidgets import GridspecLayout, Layout
 from IPython.display import display
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 
@@ -20,9 +21,8 @@ class ClimateModel:
             c_p = 4218,             # J kg-1 K-1
             dt = 365.2422 * 86400,  # s
         )
-        self.forcings = pd.read_csv('forcing_data.csv')
-        self.obs_temp_anomaly = pd.read_csv('observed_temperature_anomaly_1850-2016.csv')
-        self.obs_temp_uncert = pd.read_csv('observed_temperature_uncertainty.csv')
+        self.forcings = pd.read_csv('data/forcing_data.csv')
+        self.obs_temp_anomaly = pd.read_csv('data/observed_temperature_anomaly_1961-1990.csv')
 
     def update_T(self, dTm, dTd, dF, dt, lam, d_m, d_d, K, rho, c_p):
         C_m = rho * c_p * d_m
@@ -32,13 +32,16 @@ class ClimateModel:
         dTd = dTd + dt / C_d * D
         return dTm, dTd
 
-    def run_model(self, **control_values):
+    def run_model(self, total_forcing=None, **control_values):
         var_values = {k: control_values.get(k, v) for k, v in self.default_vars.items()}
         forcing_columns = [c for c in self.forcings.columns[1:11] if control_values.get(c, True)]
-        total_forcing = self.forcings.loc[2:][forcing_columns].sum(axis=1)
+        if total_forcing is not None:
+            self.total_forcing = total_forcing
+        else:
+            self.total_forcing = self.forcings.loc[1:][forcing_columns].sum(axis=1)
         years = [1750]
         dT = [(0, 0)]
-        for year, F in list(zip(self.forcings.YEAR.loc[2:], total_forcing)):
+        for year, F in list(zip(self.forcings.year.loc[1:], self.total_forcing)):
             dT.append(self.update_T(dT[-1][0], dT[-1][1], F, **{**self.consts, **var_values}))
             years.append(int(year))
         dT = np.array(dT)
@@ -47,18 +50,18 @@ class ClimateModel:
 
         self.anomaly_baseline = dT[(dT.year >= 1961) & (dT.year <= 1990)].mean()
         dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2015)].dTm - self.anomaly_baseline.dTm)
-        self.rmse = np.sqrt(((self.obs_temp_anomaly['Obs.'] - dTm_match_obs)**2).mean())
+        self.rmse = np.sqrt(((self.obs_temp_anomaly.obs_temp_anomaly - dTm_match_obs)**2).mean())
 
-    def base_plot(self, ax=None, **control_values):
-        ax.plot(self.obs_temp_anomaly.YEAR, self.obs_temp_anomaly['Obs.'], color='r', label='HadCRUT 4 obs.')
+    def base_plot(self, ax, **control_values):
+        ax.plot(self.obs_temp_anomaly.year, self.obs_temp_anomaly.obs_temp_anomaly, color='r', label='HadCRUT 4 obs.')
         ax.fill_between(
-            self.obs_temp_uncert.Year,
-            self.obs_temp_uncert['Min. Uncert.'],
-            self.obs_temp_uncert['Max. Uncert.'],
+            self.obs_temp_anomaly.year,
+            self.obs_temp_anomaly.min_uncert,
+            self.obs_temp_anomaly.max_uncert,
             alpha=0.4, facecolor='r', label='obs. uncert.')
 
         ax.set_ylim((-1, 2))
-        if control_values['future_scenario']:
+        if control_values.get('future_scenario', None):
             ax.set_xlim((1750, 2110))
             ax.set_xticks(range(1750, 2110, 10))
         else:
@@ -68,16 +71,27 @@ class ClimateModel:
         ax.set_xlabel('year')
         ax.set_ylabel('temperature anomaly 1961-1990 ($^\circ$C)')
 
-    def plot(self, ax=None, **control_values):
+    def plot(self, ax=None, show_forcing=True, **control_values):
+        disp_legend = ax is None
         if ax is None:
             fig, ax = plt.subplots()
             fig.set_size_inches((18, 8))
             self.base_plot(ax=ax, **control_values)
-            ax.legend(loc='upper left')
             ax.set_title(f'RMSE: {self.rmse:.3f}')
-
+        if show_forcing:
+            ax2 = ax.twinx()
+            ax2.set_ylabel('forcing (W m$^{-2}$)')
         ax.plot(self.dT.year, self.dT.dTm - self.anomaly_baseline.dTm, label='$\Delta$Tm')
         ax.plot(self.dT.year, self.dT.dTd - self.anomaly_baseline.dTd, label='$\Delta$Td')
+
+        handles, labels = ax.get_legend_handles_labels()
+        if show_forcing:
+            # N.B. Adding this to a separate axis, so label='forcing' here will not show up.
+            ax2.plot(self.dT.year.loc[1:], self.total_forcing, 'k--')
+            handles.append(Line2D([0], [0], color='k', linestyle='--', label='forcing'))
+
+        if disp_legend:
+            ax.legend(handles=handles, loc='upper left')
 
 
 class ClimateModelUI:
@@ -161,7 +175,11 @@ class ClimateModelUI:
             ui = widgets.VBox([
                 future_scenario,
                 widgets.HBox([anthro, self.anthro_on, self.anthro_off] + cbs[:4]),
-                widgets.HBox([widgets.Label('anthro.', layout=widgets.Layout(width='160px'))] + cbs[4:8]),
+                widgets.HBox([
+                    widgets.Label('Anthro.', layout=widgets.Layout(width='80px')),
+                    widgets.Label('', layout=widgets.Layout(width='40px')),
+                    widgets.Label('', layout=widgets.Layout(width='40px')),
+                ] + cbs[4:8]),
                 widgets.HBox([nat, self.nat_on, self.nat_off] + cbs[8:]),
                 widgets.HBox([self.reset_vars] + self.sliders),
                 self.run_model_btn,
