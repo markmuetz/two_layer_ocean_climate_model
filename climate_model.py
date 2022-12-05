@@ -21,8 +21,34 @@ class ClimateModel:
             c_p = 4218,             # J kg-1 K-1
             dt = 365.2422 * 86400,  # s
         )
-        self.forcings = pd.read_csv('data/forcing_data.csv')
-        self.obs_temp_anomaly = pd.read_csv('data/observed_temperature_anomaly_1961-1990.csv')
+        # self.forcings = pd.read_csv('data/forcing_data.csv')
+        self.forcings = pd.read_csv('data/ar6/data_output/AR6_ERF_1750-2019.csv')
+        self.scenario_forcings = {}
+        self.scenarios = ['SSP1-1.9', 'SSP1-2.6', 'SSP2-4.5', 'SSP3-7.0', 'SSP5-8.5']
+        for scenario in self.scenarios:
+            scenario_key = scenario.replace('-', '').replace('.', '').lower()
+            self.scenario_forcings[scenario] = pd.read_csv(f'data/ar6/data_output/SSPs/ERF_{scenario_key}_1750-2500.csv')
+        # self.obs_temp_anomaly = pd.read_csv('data/observed_temperature_anomaly_1961-1990.csv')
+        self.hadcrut5 = pd.read_csv('data/gmt_HadCRUT5.csv')
+        self.hadcrut5 = self.hadcrut5[self.hadcrut5.Year <= 2019]
+        self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'] = (self.hadcrut5['HadCRUT5 (degC)'] -
+                                                           self.hadcrut5[(self.hadcrut5.Year >= 1961) &
+                                                                         (self.hadcrut5.Year <= 1990)]['HadCRUT5 (degC)'].mean())
+
+        # Forcings to use: CO2, other WMGHGs, O3, aerosol-radiation, aerosol-cloud, other anthropogenic (sum of everything else), solar, volcanic.
+        # Forcings in CSV: co2, ch4, n2o, other_wmghg, o3, h2o_stratospheric, contrails, aerosol-radiation_interactions, aerosol-cloud_interactions,
+        #                  bc_on_snow, land_use, volcanic, solar, nonco2_wmghg, aerosol, chapter2_other_anthro, total_anthropogenic, total_natural, total
+        # Mapping
+        self.control_forcings = {
+            'CO2': ['co2'],
+            'other WMGHGs': ['ch4', 'n2o', 'other_wmghg'],
+            'O3': ['o3'],
+            'aerosol-radiation': ['aerosol-radiation_interactions'],
+            'aerosol-cloud': ['aerosol-cloud_interactions'],
+            'other anthropogenic': ['h2o_stratospheric', 'contrails', 'bc_on_snow', 'land_use', 'nonco2_wmghg', 'aerosol', 'chapter2_other_anthro'],
+            'solar': ['solar'],
+            'volcanic': ['volcanic'],
+        }
 
     def update_T(self, dTm, dTd, dF, dt, lam, d_m, d_d, K, rho, c_p):
         C_m = rho * c_p * d_m
@@ -33,15 +59,32 @@ class ClimateModel:
         return dTm, dTd
 
     def run_model(self, total_forcing=None, **control_values):
+        if scenario := control_values.get('future_scenario', None):
+            max_col = 14
+            forcings = self.scenario_forcings[scenario]
+        else:
+            max_col = 17
+            forcings = self.forcings
+        print(control_values)
+        mapped_control_values = {}
+        for k, v in control_values.items():
+            if k in self.control_forcings:
+                for forcing in self.control_forcings[k]:
+                    mapped_control_values[forcing] = v
+            else:
+                mapped_control_values[k] = v
+        print(mapped_control_values)
+        self.control_values = mapped_control_values
         var_values = {k: control_values.get(k, v) for k, v in self.default_vars.items()}
-        forcing_columns = [c for c in self.forcings.columns[1:11] if control_values.get(c, True)]
+        forcing_columns = [c for c in forcings.columns[1:max_col] if self.control_values.get(c, True)]
+        print(forcing_columns)
         if total_forcing is not None:
             self.total_forcing = total_forcing
         else:
-            self.total_forcing = self.forcings.loc[1:][forcing_columns].sum(axis=1)
+            self.total_forcing = forcings.loc[1:][forcing_columns].sum(axis=1)
         years = [1750]
         dT = [(0, 0)]
-        for year, F in list(zip(self.forcings.year.loc[1:], self.total_forcing)):
+        for year, F in list(zip(forcings.year.loc[1:], self.total_forcing)):
             dT.append(self.update_T(dT[-1][0], dT[-1][1], F, **{**self.consts, **var_values}))
             years.append(int(year))
         dT = np.array(dT)
@@ -49,49 +92,73 @@ class ClimateModel:
         self.dT = dT
 
         self.anomaly_baseline = dT[(dT.year >= 1961) & (dT.year <= 1990)].mean()
-        dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2016)].dTm - self.anomaly_baseline.dTm)
-        self.rmse = np.sqrt(((self.obs_temp_anomaly.obs_temp_anomaly.values - dTm_match_obs.values)**2).mean())
+        dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2019)].dTm - self.anomaly_baseline.dTm)
+        self.rmse = np.sqrt(((self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'].values - dTm_match_obs.values)**2).mean())
 
-    def base_plot(self, ax, **control_values):
-        ax.plot(self.obs_temp_anomaly.year, self.obs_temp_anomaly.obs_temp_anomaly, color='r', label='HadCRUT 4 obs.')
+    def base_plot(self, ax):
+        ax.plot(self.hadcrut5.Year, self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'], color='r', label='HadCRUT 5 obs.')
         ax.fill_between(
-            self.obs_temp_anomaly.year,
-            self.obs_temp_anomaly.min_uncert,
-            self.obs_temp_anomaly.max_uncert,
+            self.hadcrut5.Year,
+            self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'] - self.hadcrut5['HadCRUT5 uncertainty'] / 2,
+            self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'] + self.hadcrut5['HadCRUT5 uncertainty'] / 2,
             alpha=0.4, facecolor='r', label='obs. uncert.')
 
-        ax.set_ylim((-1, 2))
-        if control_values.get('future_scenario', None):
-            ax.set_xlim((1750, 2110))
-            ax.set_xticks(range(1750, 2110, 10))
+        ax.set_ylim((-1.5, 2.5))
+        if self.control_values.get('future_scenario', None):
+            ax.set_xlim((1850, 2110))
+            ax.set_xticks(range(1850, 2110, 10))
         else:
-            ax.set_xlim((1750, 2020))
-            ax.set_xticks(range(1750, 2030, 10))
+            ax.set_xlim((1850, 2020))
+            ax.set_xticks(range(1850, 2030, 10))
         ax.tick_params(axis="x", rotation=90)
         ax.set_xlabel('year')
         ax.set_ylabel('temperature anomaly 1961-1990 ($^\circ$C)')
 
-    def plot(self, ax=None, show_forcing=True, **control_values):
-        disp_legend = ax is None
-        if ax is None:
-            fig, ax = plt.subplots()
+    def plot(self, ax1=None, ax2=None, show_forcing=True, show_shallow=True, show_deep=False, show_equilibrium=True):
+        disp_legend = ax1 is None
+        if ax1 is None:
+            if show_equilibrium:
+                fig, (ax1, ax2) = plt.subplots(2, 1)
+            else:
+                fig, ax1 = plt.subplots()
             fig.set_size_inches((18, 8))
-            self.base_plot(ax=ax, **control_values)
-            ax.set_title(f'RMSE: {self.rmse:.3f}')
+            self.base_plot(ax=ax1)
+            if self.control_values:
+                lam, d_d, d_m, K = [self.control_values[key] for key in ['lam', 'd_d', 'd_m', 'K']]
+                title = f'$\lambda = ${lam:.2f}, $d_d = ${d_d:.2f}, $d_m = ${d_m:.2f}, $\kappa = ${K:.4f}. RMSE: {self.rmse:.3f}'
+            else:
+                title = f'RMSE: {self.rmse:.3f}'
+            ax1.set_title(title)
         if show_forcing:
-            ax2 = ax.twinx()
-            ax2.set_ylabel('forcing (W m$^{-2}$)')
-        ax.plot(self.dT.year, self.dT.dTm - self.anomaly_baseline.dTm, label='$\Delta$Tm')
-        ax.plot(self.dT.year, self.dT.dTd - self.anomaly_baseline.dTd, label='$\Delta$Td')
+            ax1t = ax1.twinx()
+            ax1t.set_ylabel('forcing (W m$^{-2}$)')
+        if show_shallow:
+            ax1.plot(self.dT.year, self.dT.dTm - self.anomaly_baseline.dTm, label='$\Delta$Tm')
+        if show_deep:
+            ax1.plot(self.dT.year, self.dT.dTd - self.anomaly_baseline.dTd, label='$\Delta$Td')
 
-        handles, labels = ax.get_legend_handles_labels()
+        if show_equilibrium:
+            ax2.plot(self.dT.year, self.dT.dTm - self.anomaly_baseline.dTm, label='transient')
+            ax2.plot(self.dT.year.loc[1:], self.total_forcing * self.control_values['lam'], label='equilibrium')
+            if self.control_values.get('future_scenario', None):
+                ax2.set_xlim((1750, 2110))
+                ax2.set_xticks(range(1750, 2110, 10))
+            else:
+                ax2.set_xlim((1750, 2020))
+                ax2.set_xticks(range(1750, 2030, 10))
+            ax2.tick_params(axis="x", rotation=90)
+            ax2.set_ylabel('temperature anomaly 1961-1990 ($^\circ$C)')
+
+        handles, labels = ax1.get_legend_handles_labels()
         if show_forcing:
             # N.B. Adding this to a separate axis, so label='forcing' here will not show up.
-            ax2.plot(self.dT.year.loc[1:], self.total_forcing, 'k--')
+            ax1t.plot(self.dT.year.loc[1:], self.total_forcing, 'k--')
             handles.append(Line2D([0], [0], color='k', linestyle='--', label='forcing'))
 
         if disp_legend:
-            ax.legend(handles=handles, loc='upper left')
+            ax1.legend(handles=handles, loc='upper left')
+            if show_equilibrium:
+                ax2.legend(loc='upper left')
 
 
 class ClimateModelUI:
@@ -111,7 +178,8 @@ class ClimateModelUI:
         self.sliders = []
         cb_layout = widgets.Layout(width='200px')
 
-        for column in self.model.forcings.columns[1:11]:
+        # for column in self.model.forcings.columns[1:11]:
+        for column in self.model.control_forcings.keys():
             checkbox = widgets.Checkbox(
                 value=True,
                 description=f'{column}',
@@ -145,11 +213,11 @@ class ClimateModelUI:
 
         grid = GridspecLayout(5, 4, width='400px')
         grid[0, :2] = future_scenario
-        for i in range(4):
-            grid[1, i] = cbs[:4][i]
-            grid[2, i] = cbs[4:8][i]
+        for i in range(3):
+            grid[1, i] = cbs[:3][i]
+            grid[2, i] = cbs[3:6][i]
         for i in range(2):
-            grid[3, i] = cbs[8:][i]
+            grid[3, i] = cbs[6:][i]
         for i in range(4):
             grid[4, i] = self.sliders[i]
         if fancy_ui:
@@ -165,8 +233,8 @@ class ClimateModelUI:
             self.nat_off = widgets.Button(description='off', layout=blayout)
             self.reset_vars = widgets.Button(description='reset vars.', layout=Layout(width='160px'))
 
-            self.anthro_cbs = cbs[:8]
-            self.nat_cbs = cbs[8:]
+            self.anthro_cbs = cbs[:6]
+            self.nat_cbs = cbs[6:]
             self.run_model_btn = widgets.Button(description='Run model')
 
             for btn in [self.anthro_on, self.anthro_off, self.nat_on, self.nat_off, self.reset_vars, self.run_model_btn]:
@@ -174,13 +242,13 @@ class ClimateModelUI:
 
             ui = widgets.VBox([
                 future_scenario,
-                widgets.HBox([anthro, self.anthro_on, self.anthro_off] + cbs[:4]),
+                widgets.HBox([anthro, self.anthro_on, self.anthro_off] + cbs[:3]),
                 widgets.HBox([
                     widgets.Label('Anthro.', layout=widgets.Layout(width='80px')),
                     widgets.Label('', layout=widgets.Layout(width='40px')),
                     widgets.Label('', layout=widgets.Layout(width='40px')),
-                ] + cbs[4:8]),
-                widgets.HBox([nat, self.nat_on, self.nat_off] + cbs[8:]),
+                ] + cbs[3:6]),
+                widgets.HBox([nat, self.nat_on, self.nat_off] + cbs[6:]),
                 widgets.HBox([self.reset_vars] + self.sliders),
                 self.run_model_btn,
             ])
@@ -227,5 +295,5 @@ class ClimateModelUI:
 
     def run_model(self, **control_values):
         self.model.run_model(**control_values)
-        self.model.plot(**control_values)
+        self.model.plot()
 
