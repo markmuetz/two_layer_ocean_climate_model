@@ -2,10 +2,12 @@ import ipywidgets as widgets
 import ipywidgets.widgets.interaction as interaction
 from ipywidgets import GridspecLayout, Layout
 from IPython.display import display
+
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 
 
 class ClimateModel:
@@ -31,9 +33,9 @@ class ClimateModel:
         # self.obs_temp_anomaly = pd.read_csv('data/observed_temperature_anomaly_1961-1990.csv')
         self.hadcrut5 = pd.read_csv('data/gmt_HadCRUT5.csv')
         self.hadcrut5 = self.hadcrut5[self.hadcrut5.Year <= 2019]
-        self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'] = (self.hadcrut5['HadCRUT5 (degC)'] -
-                                                           self.hadcrut5[(self.hadcrut5.Year >= 1961) &
-                                                                         (self.hadcrut5.Year <= 1990)]['HadCRUT5 (degC)'].mean())
+        self.hadcrut5['HadCRUT5 1850-1899 anom (degC)'] = (self.hadcrut5['HadCRUT5 (degC)'] -
+                                                           self.hadcrut5[(self.hadcrut5.Year >= 1850) &
+                                                                         (self.hadcrut5.Year <= 1899)]['HadCRUT5 (degC)'].mean())
 
         # Forcings to use: CO2, other WMGHGs, O3, aerosol-radiation, aerosol-cloud, other anthropogenic (sum of everything else), solar, volcanic.
         # Forcings in CSV: co2, ch4, n2o, other_wmghg, o3, h2o_stratospheric, contrails, aerosol-radiation_interactions, aerosol-cloud_interactions,
@@ -45,7 +47,7 @@ class ClimateModel:
             'O3': ['o3'],
             'aerosol-radiation': ['aerosol-radiation_interactions'],
             'aerosol-cloud': ['aerosol-cloud_interactions'],
-            'other anthropogenic': ['h2o_stratospheric', 'contrails', 'bc_on_snow', 'land_use', 'nonco2_wmghg', 'aerosol', 'chapter2_other_anthro'],
+            'other anthropogenic': ['h2o_stratospheric', 'contrails', 'bc_on_snow', 'land_use'],
             'solar': ['solar'],
             'volcanic': ['volcanic'],
         }
@@ -60,10 +62,10 @@ class ClimateModel:
 
     def run_model(self, total_forcing=None, **control_values):
         if scenario := control_values.get('future_scenario', None):
-            max_col = 14
+            max_col = 11
             forcings = self.scenario_forcings[scenario]
         else:
-            max_col = 17
+            max_col = 14
             forcings = self.forcings
         # print(control_values)
         mapped_control_values = {}
@@ -91,17 +93,27 @@ class ClimateModel:
         dT = pd.DataFrame(data={'year': years, 'dTm': dT[:, 0], 'dTd': dT[:, 1]})
         self.dT = dT
 
-        self.anomaly_baseline = dT[(dT.year >= 1961) & (dT.year <= 1990)].mean()
+        self.anomaly_baseline = dT[(dT.year >= 1850) & (dT.year <= 1899)].mean()
         dTm_match_obs = (dT[(dT.year >= 1850) & (dT.year <= 2019)].dTm - self.anomaly_baseline.dTm)
-        self.rmse = np.sqrt(((self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'].values - dTm_match_obs.values)**2).mean())
+        self.rmse = np.sqrt(((self.hadcrut5['HadCRUT5 1850-1899 anom (degC)'].values - dTm_match_obs.values)**2).mean())
+
+    def optimize_lambda(self):
+        def func(lam):
+            self.run_model(lam=lam.item())
+            return self.rmse
+
+        res = minimize(func, 0.8)
+        # print(res)
+        return res.fun, res.x.item()
 
     def base_plot(self, ax):
-        ax.plot(self.hadcrut5.Year, self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'], color='r', label='HadCRUT 5 obs.')
+        ax.plot(self.hadcrut5.Year, self.hadcrut5['HadCRUT5 1850-1899 anom (degC)'], color='r', label='HadCRUT 5 obs.')
         ax.fill_between(
             self.hadcrut5.Year,
-            self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'] - self.hadcrut5['HadCRUT5 uncertainty'] / 2,
-            self.hadcrut5['HadCRUT5 1961-1990 anom (degC)'] + self.hadcrut5['HadCRUT5 uncertainty'] / 2,
-            alpha=0.4, facecolor='r', label='obs. uncert.')
+            self.hadcrut5['HadCRUT5 1850-1899 anom (degC)'] - self.hadcrut5['HadCRUT5 uncertainty'] / 2,
+            self.hadcrut5['HadCRUT5 1850-1899 anom (degC)'] + self.hadcrut5['HadCRUT5 uncertainty'] / 2,
+            alpha=0.4, facecolor='r', label='obs. uncert.'
+        )
 
         ax.set_ylim((-1.5, 2.5))
         if self.control_values.get('future_scenario', None):
@@ -112,7 +124,7 @@ class ClimateModel:
             ax.set_xticks(range(1850, 2030, 10))
         ax.tick_params(axis="x", rotation=90)
         ax.set_xlabel('year')
-        ax.set_ylabel('temperature anomaly 1961-1990 ($^\circ$C)')
+        ax.set_ylabel('temperature anomaly 1850-1899 ($^\circ$C)')
 
     def plot(self, ax1=None, ax2=None, show_forcing=True, show_shallow=True, show_deep=False, show_equilibrium=True):
         disp_legend = ax1 is None
@@ -124,8 +136,8 @@ class ClimateModel:
             fig.set_size_inches((18, 8))
             self.base_plot(ax=ax1)
             if self.control_values:
-                lam, d_d, d_m, K = [self.control_values[key] for key in ['lam', 'd_d', 'd_m', 'K']]
-                title = f'$\lambda = ${lam:.2f}, $d_d = ${d_d:.2f}, $d_m = ${d_m:.2f}, $\kappa = ${K:.4f}. RMSE: {self.rmse:.3f}'
+                lam, d_d, d_m, K = [self.control_values.get(k, v) for k, v in self.default_vars.items()]
+                title = f'$\lambda = ${lam:.2f}, $d_d = ${d_d:.2f}, $d_m = ${d_m:.2f}, $\kappa = ${K:.4f}. RMSE: {self.rmse:.6f}'
             else:
                 title = f'RMSE: {self.rmse:.3f}'
             ax1.set_title(title)
@@ -147,7 +159,7 @@ class ClimateModel:
                 ax2.set_xlim((1850, 2020))
                 ax2.set_xticks(range(1850, 2030, 10))
             ax2.tick_params(axis="x", rotation=90)
-            ax2.set_ylabel('temperature anomaly 1961-1990 ($^\circ$C)')
+            ax2.set_ylabel('temperature anomaly 1850-1899 ($^\circ$C)')
 
         handles, labels = ax1.get_legend_handles_labels()
         if show_forcing:
