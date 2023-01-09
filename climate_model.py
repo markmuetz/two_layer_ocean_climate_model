@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import ipywidgets as widgets
 import ipywidgets.widgets.interaction as interaction
 from ipywidgets import GridspecLayout, Layout
@@ -24,14 +26,15 @@ class ClimateModel:
             dt = 365.2422 * 86400,  # s
         )
         # self.forcings = pd.read_csv('data/forcing_data.csv')
-        self.forcings = pd.read_csv('data/ar6/data_output/AR6_ERF_1750-2019.csv')
+        # self.forcings = pd.read_csv(Path('data/ar6/data_output/AR6_ERF_1750-2019.csv'))
+        self.forcings = pd.read_csv(Path('data/AR6_ERF_1750-2019.csv'))
         self.scenario_forcings = {}
         self.scenarios = ['SSP1-1.9', 'SSP1-2.6', 'SSP2-4.5', 'SSP3-7.0', 'SSP5-8.5']
         for scenario in self.scenarios:
             scenario_key = scenario.replace('-', '').replace('.', '').lower()
-            self.scenario_forcings[scenario] = pd.read_csv(f'data/ar6/data_output/SSPs/ERF_{scenario_key}_1750-2500.csv')
+            self.scenario_forcings[scenario] = pd.read_csv(Path(f'data/ERF_{scenario_key}_1750-2500.csv'))
         # self.obs_temp_anomaly = pd.read_csv('data/observed_temperature_anomaly_1961-1990.csv')
-        self.hadcrut5 = pd.read_csv('data/gmt_HadCRUT5.csv')
+        self.hadcrut5 = pd.read_csv(Path('data/gmt_HadCRUT5.csv'))
         self.hadcrut5 = self.hadcrut5[self.hadcrut5.Year <= 2019]
         self.hadcrut5['HadCRUT5 1850-1899 anom (degC)'] = (self.hadcrut5['HadCRUT5 (degC)'] -
                                                            self.hadcrut5[(self.hadcrut5.Year >= 1850) &
