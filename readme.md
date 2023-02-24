@@ -1,6 +1,6 @@
 # Instructions for running this on a University of Reading computer or one with AppsAnywhere installed
 
-* Download the latest version (0.6.1) of the code: (https://github.com/markmuetz/two_layer_ocean_climate_model/archive/refs/tags/v0.6.1.zip)[https://github.com/markmuetz/two_layer_ocean_climate_model/archive/refs/tags/v0.6.1.zip] and unzip to a directory
+* Download the latest version (0.6.1) of the code: [https://github.com/markmuetz/two_layer_ocean_climate_model/archive/refs/tags/v0.6.1.zip](https://github.com/markmuetz/two_layer_ocean_climate_model/archive/refs/tags/v0.6.1.zip) and unzip to a directory
 * Open AppsAnywhere in your browser. Launch Anaconda 2022.05 Python 3.9.12
 * Launch Anaconda distribution again from the AppsAnywhere launcher
 * Open JupyterLab 3.4.4 (should open a new tab in your browser)
