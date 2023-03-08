@@ -17,7 +17,7 @@ class ClimateModel:
         'd_m': 100,  # m
         'd_d': 900,  # m
         'K': 1e-4,  # m2 s-1
-        'aer-cld scaling': 1,  # unitless
+        'aer_cld_scaling': 1,  # unitless
     }
     consts = dict(
         rho=1000,  # kg m-3
@@ -95,7 +95,7 @@ class ClimateModel:
         forcing_columns = [c for c in forcings.columns[1:max_col] if self.control_values.get(c, True)]
         self._print_debug(forcing_columns)
 
-        aer_cld_scaling = var_values.pop('aer-cld scaling')
+        aer_cld_scaling = var_values.pop('aer_cld_scaling')
         # If total_forcing is supplied, just use, otherwise calc. from selected forcing_columns.
         if total_forcing is not None:
             self.total_forcing = total_forcing
@@ -178,23 +178,19 @@ class ClimateModel:
 
             if show_obs:
                 if self.control_values:
-                    lam, d_d, d_m, K, aer_cld_scaling = [
-                        self.control_values.get(k, v) for k, v in self.default_vars.items()
-                    ]
+                    control_values = {k: self.control_values.get(k, v) for k, v in self.default_vars.items()}
                     title = (
-                        f'$\lambda = ${lam:.2f}, $d_d = ${d_d:.2f}, $d_m = ${d_m:.2f}, '
-                        f'$\kappa = ${K:.5f}, aer-cld scaling: {aer_cld_scaling:.2f}. RMSE: {self.rmse:.6f}'
-                    )
+                        '$\lambda = ${lam:.2f}, $d_m = ${d_m:.2f}, $d_d = ${d_d:.2f}, '
+                        '$\kappa = ${K:.5f}, aer-cld scaling: {aer_cld_scaling:.2f}. RMSE: {rmse:.6f}'
+                    ).format(rmse=self.rmse, **control_values)
                 else:
                     title = f'RMSE: {self.rmse:.3f}'
             else:
-                lam, d_d, d_m, K, aer_cld_scaling = [
-                    self.control_values.get(k, v) for k, v in self.default_vars.items()
-                ]
+                control_values = {k: self.control_values.get(k, v) for k, v in self.default_vars.items()}
                 title = (
-                    f'$\lambda = ${lam:.2f}, $d_d = ${d_d:.2f}, $d_m = ${d_m:.2f}, '
-                    f'$\kappa = ${K:.5f}, aer-cld scaling: {aer_cld_scaling:.2f}'
-                )
+                    '$\lambda = ${lam:.2f}, $d_m = ${d_m:.2f}, $d_d = ${d_d:.2f}, '
+                    '$\kappa = ${K:.5f}, aer-cld scaling: {aer_cld_scaling:.2f}'
+                ).format(**control_values)
             ax = [ax for ax in [ax0, ax1, ax2] if ax is not None][0]
             ax.set_title(title)
 
@@ -245,7 +241,7 @@ class ClimateModelUI:
         'd_m': {'min': 10, 'max': 300, 'step': 10, 'readout_format': '.0f'},
         'd_d': {'min': 100, 'max': 2000, 'step': 50, 'readout_format': '.0f'},
         'K': {'min': 0, 'max': 4e-4, 'step': 5e-5, 'readout_format': '.5f'},
-        'aer-cld scaling': {'min': 0, 'max': 2, 'step': 0.01, 'readout_format': '.2f'},
+        'aer_cld_scaling': {'min': 0, 'max': 2, 'step': 0.01, 'readout_format': '.2f'},
     }
 
     def __init__(self, model):
